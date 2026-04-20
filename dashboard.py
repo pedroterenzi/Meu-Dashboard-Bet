@@ -101,10 +101,7 @@ try:
         def ext_est(txt): return str(txt).split('Ref:')[0].split('/')[-1].strip() if '/' in str(txt) else "Match Odds"
         df_clean['Est'] = df_clean['Evento'].apply(ext_est)
         
-        # 1. Odd dos Greens
         df_clean['Odd'] = df_clean['Valor (R$)'].apply(lambda x: (x / stake_padrao) + 1 if x > 0 else 0)
-        
-        # 2. Odd Média para Reds (para que as perdas entrem no range correto)
         avg_odds = df_clean[df_clean['Odd'] > 0].groupby('Est')['Odd'].mean().to_dict()
         df_clean.loc[df_clean['Odd'] == 0, 'Odd'] = df_clean['Est'].map(avg_odds).fillna(1.50)
 
@@ -136,7 +133,8 @@ try:
                 elif val < -0.05:
                     classe = "day-card red-card"; txt_val = format_br(val); txt_stk = f"{abs(stks):,.2f} STK"
                 else:
-                    classe = "day-card"; txt_val = "OFF"; txt_stk = ""
+                    classe = "day-card"; txt_val = ""; txt_stk = "" # REMOVIDO "OFF"
+                
                 content = f'<span class="day-value">{txt_val}</span>'
                 if txt_stk: content += f'<span class="day-stakes">{txt_stk}</span>'
                 html_cal += f'<div class="{classe}"><span class="day-number">{dia}</span>{content}</div>'
@@ -169,7 +167,7 @@ try:
         )
         st.plotly_chart(fig_evol, use_container_width=True, config={'displayModeBar': False})
 
-        # --- PERFORMANCE ESTRATÉGIA E NOVOS RANGES DE ODD ---
+        # --- PERFORMANCE ---
         col_est, col_odd = st.columns(2)
         with col_est:
             st.subheader("🎯 Performance por Estratégia")
@@ -181,7 +179,6 @@ try:
 
         with col_odd:
             st.subheader("📊 Performance por Range de Odd")
-            # --- NOVOS INTERVALOS SOLICITADOS ---
             bins = [0, 1.30, 1.59, 1.79, 2.09, 3.0, 1000]
             labels = ['1.00-1.30', '1.31-1.59', '1.60-1.79', '1.80-2.09', '2.10-3.00', '3.00+']
             df_clean['Range'] = pd.cut(df_clean['Odd'], bins=bins, labels=labels)
