@@ -56,7 +56,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# TÍTULO EXECUTIVE
 st.markdown("<h1 style='text-align: center; color: white; font-size: 2rem; font-weight: 800;'> <span style='color: #10b981;'>BETTING</span> ANALYTICS <span style='font-weight: 100; opacity: 0.3;'>|</span> EXECUTIVE</h1>", unsafe_allow_html=True)
 
 # --- CONFIGURAÇÃO DE DADOS ---
@@ -64,7 +63,6 @@ arquivo_path = "Betfair.csv"
 stake_padrao = st.sidebar.number_input("Stake Padrão (R$)", value=600.0)
 
 def format_br(val):
-    """Formata valor para padrão R$ 2.000,00"""
     prefix = "-" if val < 0 else ""
     val_abs = abs(val)
     return f"{prefix}R$ {val_abs:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -96,14 +94,13 @@ try:
             match = re.search(r'Ref: (\d+)', str(row['Evento']))
             return match.group(1) if match else row.name
         df_f['ID_Ref'] = df_f.apply(extract_id, axis=1)
+        
+        # Base limpa para cálculos de métricas
         df_clean = df_f.groupby(['ID_Ref', 'Data_Apenas', 'Evento']).agg({'Valor (R$)': 'sum'}).reset_index()
-
-        # Cálculos Base
-        df_clean['Lucro_Acumulado'] = df_clean['Valor (R$)'].cumsum()
-        df_clean['Odd'] = df_clean['Valor (R$)'].apply(lambda x: (x / stake_padrao) + 1 if x > 0 else 0)
 
         # --- 3. MÉTRICAS TOPO ---
         total_l = df_clean['Valor (R$)'].sum()
+        df_clean['Odd'] = df_clean['Valor (R$)'].apply(lambda x: (x / stake_padrao) + 1 if x > 0 else 0)
         odd_m = df_clean[df_clean['Odd'] > 0]['Odd'].mean()
         
         c1, c2, c3, c4 = st.columns(4)
@@ -112,7 +109,7 @@ try:
         with c3: st.markdown(f'<div class="metric-card" style="background: #0f172a;"><div class="metric-title">Saldo Stakes</div><div class="metric-value">{total_l/stake_padrao:,.2f}</div></div>', unsafe_allow_html=True)
         with c4: st.markdown(f'<div class="metric-card" style="background: #0f172a;"><div class="metric-title">Entradas</div><div class="metric-value">{len(df_clean)}</div></div>', unsafe_allow_html=True)
 
-        # --- 4. CALENDÁRIO NO TOPO ---
+        # --- 4. CALENDÁRIO ---
         st.markdown("<p style='color:#64748b; font-weight:800; margin-top:20px; margin-bottom:0; font-size:0.8rem; letter-spacing:1px;'>📅 DIÁRIO DE OPERAÇÕES</p>", unsafe_allow_html=True)
         cal_obj = calendar.Calendar(firstweekday=0)
         dias_mes = list(cal_obj.itermonthdays(start.year, start.month))
@@ -135,43 +132,38 @@ try:
                     txt_stk = f"{abs(stks):,.2f} STK"
                 else:
                     classe = "day-card"
-                    txt_val = "OFF"
-                    txt_stk = ""
-                
+                    txt_val = "OFF"; txt_stk = ""
                 content = f'<span class="day-value">{txt_val}</span>'
                 if txt_stk: content += f'<span class="day-stakes">{txt_stk}</span>'
-                
                 html_cal += f'<div class="{classe}"><span class="day-number">{dia}</span>{content}</div>'
         html_cal += '</div>'
         st.markdown(html_cal, unsafe_allow_html=True)
 
-        # --- 5. GRÁFICO ACUMULADO ULTRA-SMOOTH (LINHA FINA E CURVA) ---
-        st.markdown("<p style='color:#64748b; font-weight:800; margin-top:10px; margin-bottom:0; font-size:0.8rem; letter-spacing:1px;'>📈 EVOLUÇÃO PATRIMONIAL</p>", unsafe_allow_html=True)
+        # --- 5. GRÁFICO ACUMULADO POR DIA (SOLUÇÃO PARA O "QUADRADÃO") ---
+        st.markdown("<p style='color:#64748b; font-weight:800; margin-top:10px; margin-bottom:0; font-size:0.8rem; letter-spacing:1px;'>📈 EVOLUÇÃO PATRIMONIAL (DIÁRIA)</p>", unsafe_allow_html=True)
         
-        y = df_clean['Lucro_Acumulado'].tolist()
-        x = df_clean['Data_Apenas'].tolist()
+        # AGRUPANDO POR DIA PARA LISURA DA LINHA
+        df_diario = df_clean.groupby('Data_Apenas')['Valor (R$)'].sum().reset_index()
+        df_diario['Acumulado'] = df_diario['Valor (R$)'].cumsum()
+        
+        y = df_diario['Acumulado'].tolist()
+        x = df_diario['Data_Apenas'].tolist()
         
         fig_evol = go.Figure()
-
-        # Linha Fina e Curva (Spline) com troca de cor
+        # Linha Fina, Curva (Spline) e Bicolor
         for i in range(len(y)-1):
             cor = '#10b981' if y[i+1] >= 0 else '#f43f5e'
             fig_evol.add_trace(go.Scatter(
                 x=x[i:i+2], y=y[i:i+2],
-                mode='lines', 
-                line=dict(color=cor, width=2.5, shape='spline', smoothing=1.3),
+                mode='lines', line=dict(color=cor, width=2.5, shape='spline', smoothing=1.3),
                 hoverinfo='skip', showlegend=False
             ))
-
-        # Preenchimento Glow Sutil
+        # Glow
         fig_evol.add_trace(go.Scatter(
-            x=x, y=y,
-            mode='lines', line=dict(color='rgba(0,0,0,0)'),
-            fill='tozeroy', 
-            fillcolor='rgba(16, 185, 129, 0.03)' if total_l >= 0 else 'rgba(244, 63, 94, 0.03)',
+            x=x, y=y, mode='lines', line=dict(color='rgba(0,0,0,0)'),
+            fill='tozeroy', fillcolor='rgba(16, 185, 129, 0.03)' if total_l >= 0 else 'rgba(244, 63, 94, 0.03)',
             showlegend=False
         ))
-
         fig_evol.update_layout(
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
             margin=dict(l=0, r=0, t=20, b=0), height=380,
@@ -180,7 +172,7 @@ try:
         )
         st.plotly_chart(fig_evol, use_container_width=True, config={'displayModeBar': False})
 
-        # --- 6. PERFORMANCE ESTRATÉGIA E ODD ---
+        # --- 6. PERFORMANCE ---
         col_est, col_odd = st.columns(2)
         with col_est:
             st.subheader("🎯 Performance por Estratégia")
@@ -190,11 +182,7 @@ try:
             for est, row in res_est.iterrows():
                 roi = (row['Lucro'] / (row['Qtd'] * stake_padrao)) * 100
                 cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
-                st.markdown(f'''<div class="perf-card">
-                    <div style="flex:2"><b style="color:white">{est}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div>
-                    <div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div>
-                </div>''', unsafe_allow_html=True)
-
+                st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">{est}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
         with col_odd:
             st.subheader("📊 Performance por Range de Odd")
             bins = [0, 1.30, 1.60, 2.0, 3.0, 100]; labels = ['1.0-1.3', '1.3-1.6', '1.6-2.0', '2.0-3.0', '3.0+']
@@ -203,10 +191,6 @@ try:
             for r, row in res_odd.iterrows():
                 roi = (row['Lucro'] / (row['Qtd'] * stake_padrao)) * 100 if row['Qtd'] > 0 else 0
                 cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
-                st.markdown(f'''<div class="perf-card">
-                    <div style="flex:2"><b style="color:white">Odd: {r}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div>
-                    <div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div>
-                </div>''', unsafe_allow_html=True)
-
+                st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">Odd: {r}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
 except Exception as e:
-    st.error(f"Erro no processamento: {e}")
+    st.error(f"Erro: {e}")
