@@ -58,7 +58,7 @@ st.title("💹 Betting Analytics Executive")
 st.sidebar.header("🕹️ Painel Online")
 
 # Nome do arquivo que você vai subir no GitHub
-NOME_ARQUIVO_PADRAO = "AccountStatement_ (1).csv"
+NOME_ARQUIVO_PADRAO = "Betfair.csv"
 arquivo_path = st.sidebar.text_input("Nome do Arquivo CSV", NOME_ARQUIVO_PADRAO)
 stake_padrao = st.sidebar.number_input("Stake (R$)", value=600.0)
 
