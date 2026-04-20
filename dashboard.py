@@ -9,7 +9,7 @@ import numpy as np
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(layout="wide", page_title="Betting Analytics Pro", page_icon="💎")
 
-# --- ESTILIZAÇÃO CSS PREMIUM (CONSOLIDADA) ---
+# --- ESTILIZAÇÃO CSS PREMIUM ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
@@ -64,7 +64,7 @@ def clean_money(val):
     if val == '--' or pd.isna(val): return 0.0
     return float(str(val).replace(',', ''))
 
-# --- CARREGAMENTO DE DADOS (COMUM A TODAS AS PÁGINAS) ---
+# --- CARREGAMENTO DE DADOS ---
 arquivo_path = "Betfair.csv"
 stake_padrao = st.sidebar.number_input("Stake Padrão (R$)", value=600.0)
 
@@ -75,30 +75,44 @@ try:
         df_raw['Valor (R$)'] = df_raw['Entrada de Dinheiro (R$)'].apply(clean_money) + df_raw['Saída de Dinheiro (R$)'].apply(clean_money)
     
     df = df_raw[~df_raw['Evento'].str.contains('Depósito|Deposit|Withdraw|Saque|Transferência', case=False, na=False)].copy()
-    meses_pt = {'jan': 'Jan', 'fev': 'Feb', 'mar': 'Mar', 'abr': 'Apr', 'mai': 'May', 'jun': 'Jun', 'jul': 'Jul', 'ago': 'Aug', 'set': 'Sep', 'out': 'Oct', 'nov': 'Nov', 'dez': 'Dec'}
-    for pt, en in meses_pt.items(): df['Data'] = df['Data'].str.replace(pt, en, case=False)
+    meses_pt_map = {'jan': 'Jan', 'fev': 'Feb', 'mar': 'Mar', 'abr': 'Apr', 'mai': 'May', 'jun': 'Jun', 'jul': 'Jul', 'ago': 'Aug', 'set': 'Sep', 'out': 'Oct', 'nov': 'Nov', 'dez': 'Dec'}
+    for pt, en in meses_pt_map.items(): df['Data'] = df['Data'].str.replace(pt, en, case=False)
     
     df['Data'] = pd.to_datetime(df['Data'])
-    df['Data_Apenas'] = df['Data'].dt.date
+    df['Ano'] = df['Data'].dt.year
+    df['Mes_Num'] = df['Data'].dt.month
     df = df.sort_values('Data')
 
-    # Navegação na Sidebar
+    # --- NOVO SELETOR DE PERÍODO (MES E ANO) ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📅 Selecionar Período")
+    
+    anos_disponiveis = sorted(df['Ano'].unique(), reverse=True)
+    ano_sel = st.sidebar.selectbox("Ano", anos_disponiveis)
+    
+    # Mapeamento de meses para exibição
+    nomes_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    mes_nome_sel = st.sidebar.selectbox("Mês", nomes_meses, index=datetime.now().month - 1)
+    mes_num_sel = nomes_meses.index(mes_nome_sel) + 1
+
+    # Navegação
     st.sidebar.markdown("---")
     menu = st.sidebar.radio("Navegação", ["📈 Performance Geral", "📅 Diário de Operações", "📊 Evolução Patrimonial"])
 
-    data_sel = st.sidebar.date_input("Filtrar Período", [df['Data_Apenas'].min(), df['Data_Apenas'].max()])
-
-    if len(data_sel) == 2:
-        start, end = data_sel
-        df_f = df[(df['Data_Apenas'] >= start) & (df['Data_Apenas'] <= end)].copy()
-        
+    # Filtro de dados baseado na seleção de Mês/Ano
+    df_f = df[(df['Ano'] == ano_sel) & (df['Mes_Num'] == mes_num_sel)].copy()
+    
+    if df_f.empty:
+        st.warning(f"Sem dados para {mes_nome_sel} de {ano_sel}")
+    else:
         def extract_id(row):
             match = re.search(r'Ref: (\d+)', str(row['Evento']))
             return match.group(1) if match else row.name
         df_f['ID_Ref'] = df_f.apply(extract_id, axis=1)
-        df_clean = df_f.groupby(['ID_Ref', 'Data_Apenas', 'Evento']).agg({'Valor (R$)': 'sum'}).reset_index()
+        df_clean = df_f.groupby(['ID_Ref', 'Data', 'Evento']).agg({'Valor (R$)': 'sum'}).reset_index()
+        df_clean['Data_Apenas'] = df_clean['Data'].dt.date
 
-        # Cálculos de Odd e Estratégia
+        # Lógica de Odds
         def ext_est(txt): return str(txt).split('Ref:')[0].split('/')[-1].strip() if '/' in str(txt) else "Match Odds"
         df_clean['Est'] = df_clean['Evento'].apply(ext_est)
         df_clean['Odd'] = df_clean['Valor (R$)'].apply(lambda x: (x / stake_padrao) + 1 if x > 0 else 0)
@@ -108,11 +122,9 @@ try:
         total_l = df_clean['Valor (R$)'].sum()
         odd_m = df_clean[df_clean['Valor (R$)'] > 0]['Odd'].mean()
 
-        # ---------------------------------------------------------
-        # VISÃO 1: PERFORMANCE GERAL
-        # ---------------------------------------------------------
+        # --- VISÃO 1: PERFORMANCE ---
         if menu == "📈 Performance Geral":
-            st.markdown("<h2 style='color: white;'>Executive Summary</h2>", unsafe_allow_html=True)
+            st.markdown(f"<h2 style='color: white;'>Resumo: {mes_nome_sel} {ano_sel}</h2>", unsafe_allow_html=True)
             c1, c2, c3, c4 = st.columns(4)
             with c1: st.markdown(f'<div class="metric-card" style="background: linear-gradient(135deg, #10b981 0%, #064e3b 100%);"><div class="metric-title">Lucro Líquido</div><div class="metric-value">{format_br(total_l)}</div></div>', unsafe_allow_html=True)
             with c2: st.markdown(f'<div class="metric-card"><div class="metric-title">Odd Média</div><div class="metric-value">{odd_m:.2f}</div></div>', unsafe_allow_html=True)
@@ -139,14 +151,12 @@ try:
                     cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
                     st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">Odd: {r}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
 
-        # ---------------------------------------------------------
-        # VISÃO 2: CALENDÁRIO
-        # ---------------------------------------------------------
+        # --- VISÃO 2: CALENDÁRIO ---
         elif menu == "📅 Diário de Operações":
-            st.subheader("Diário de Operações")
+            st.subheader(f"Calendário: {mes_nome_sel} {ano_sel}")
             cal_obj = calendar.Calendar(firstweekday=0)
-            dias_mes = list(cal_obj.itermonthdays(start.year, start.month))
-            lucro_dia = df_clean.groupby(pd.to_datetime(df_clean['Data_Apenas']).dt.day)['Valor (R$)'].sum()
+            dias_mes = list(cal_obj.itermonthdays(ano_sel, mes_num_sel))
+            lucro_dia = df_clean.groupby(df_clean['Data'].dt.day)['Valor (R$)'].sum()
 
             html_cal = '<div class="calendar-grid">'
             for n in ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB', 'DOM']: html_cal += f'<div class="day-name">{n}</div>'
@@ -160,19 +170,16 @@ try:
                     elif val < -0.05:
                         classe = "day-card red-card"; txt_val = format_br(val); txt_stk = f"{abs(stks):,.2f} STK"
                     else:
-                        classe = "day-card"; txt_val = ""; txt_stk = "" # SEM "OFF"
-                    
+                        classe = "day-card"; txt_val = ""; txt_stk = ""
                     content = f'<span class="day-value">{txt_val}</span>'
                     if txt_stk: content += f'<span class="day-stakes">{txt_stk}</span>'
                     html_cal += f'<div class="{classe}"><span class="day-number">{dia}</span>{content}</div>'
             html_cal += '</div>'
             st.markdown(html_cal, unsafe_allow_html=True)
 
-        # ---------------------------------------------------------
-        # VISÃO 3: EVOLUÇÃO (GRÁFICO)
-        # ---------------------------------------------------------
+        # --- VISÃO 3: EVOLUÇÃO ---
         elif menu == "📊 Evolução Patrimonial":
-            st.subheader("Curva de Patrimônio (Consolidado Diário)")
+            st.subheader(f"Evolução: {mes_nome_sel} {ano_sel}")
             df_diario = df_clean.groupby('Data_Apenas')['Valor (R$)'].sum().reset_index()
             df_diario['Acumulado'] = df_diario['Valor (R$)'].cumsum()
             y, x = df_diario['Acumulado'].tolist(), df_diario['Data_Apenas'].tolist()
@@ -186,4 +193,4 @@ try:
             st.plotly_chart(fig_evol, use_container_width=True, config={'displayModeBar': False})
 
 except Exception as e:
-    st.error(f"Erro no processamento: {e}")
+    st.error(f"Erro: {e}")
