@@ -163,4 +163,45 @@ try:
             dias = list(cal_obj.itermonthdays(ano_cal, mes_num_cal))
             lucro_dia = df_clean.groupby(df_clean['Data'].dt.day)['Valor (R$)'].sum()
             html = '<div class="calendar-grid">'
-            for n in ['S','T','Q','Q','S','S','D']: html += f'<div class="day-name">{n
+            for n in ['S','T','Q','Q','S','S','D']: html += f'<div class="day-name">{n}</div>'
+            for d in dias:
+                if d == 0: html += '<div style="opacity:0"></div>'
+                else:
+                    v = lucro_dia.get(d, 0)
+                    cl = "day-card green-card" if v > 0.05 else "day-card red-card" if v < -0.05 else "day-card"
+                    html += f'<div class="{cl}"><span class="day-number">{d}</span><span class="day-value">{format_br(v) if abs(v)>0.05 else ""}</span></div>'
+            html += '</div>'
+            st.markdown(html, unsafe_allow_html=True)
+
+        elif menu == "Evolução Patrimonial":
+            df_d = df_clean.groupby('Data_Apenas')['Valor (R$)'].sum().reset_index()
+            df_d['Acum'] = df_d['Valor (R$)'].cumsum()
+            y, x = df_d['Acum'].tolist(), df_d['Data_Apenas'].tolist()
+            fig = go.Figure()
+            for i in range(len(y)-1):
+                c = '#10b981' if y[i+1] >= 0 else '#f43f5e'
+                fig.add_trace(go.Scatter(x=x[i:i+2], y=y[i:i+2], mode='lines', line=dict(color=c, width=3, shape='spline', smoothing=1.3), hoverinfo='skip'))
+            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=450, margin=dict(l=0,r=0,t=0,b=0))
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+        elif menu == "Análise de Janelas":
+            c1, c2 = st.columns(2)
+            with c1:
+                st.subheader("📅 Dias")
+                dias_s = {0:'Segunda', 1:'Terça', 2:'Quarta', 3:'Quinta', 4:'Sexta', 5:'Sábado', 6:'Domingo'}
+                res_d = df_clean.groupby('Dia_Semana_Num').agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'})
+                for i in range(7):
+                    if i not in res_d.index: res_d.loc[i] = [0, 0]
+                for idx, row in res_d.sort_index().iterrows():
+                    cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
+                    st.markdown(f'<div class="perf-card"><div><b>{dias_s[idx]}</b></div><div style="text-align:right"><span class="{cor}">{format_br(row["Lucro"])}</span></div></div>', unsafe_allow_html=True)
+            with c2:
+                st.subheader("⌚ Horários")
+                df_clean['FH'] = pd.cut(df_clean['Hora'], bins=[0,6,12,18,24], labels=['Madrugada','Manhã','Tarde','Noite'], include_lowest=True)
+                res_h = df_clean.groupby('FH', observed=False).agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'})
+                for f, row in res_h.iterrows():
+                    cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
+                    st.markdown(f'<div class="perf-card"><div><b>{f}</b></div><div style="text-align:right"><span class="{cor}">{format_br(row["Lucro"])}</span></div></div>', unsafe_allow_html=True)
+
+except Exception as e:
+    st.error(f"Erro: {e}")
