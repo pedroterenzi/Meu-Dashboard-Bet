@@ -58,7 +58,7 @@ st.markdown("""
 
 st.markdown("<h1 style='text-align: center; color: white; font-size: 2rem; font-weight: 800;'> <span style='color: #10b981;'>BETTING</span> ANALYTICS <span style='font-weight: 100; opacity: 0.3;'>|</span> EXECUTIVE</h1>", unsafe_allow_html=True)
 
-# --- 2. CONFIGURAÇÃO DE DADOS ---
+# --- CONFIGURAÇÃO DE DADOS ---
 arquivo_path = "Betfair.csv"
 stake_padrao = st.sidebar.number_input("Stake Padrão (R$)", value=600.0)
 
@@ -94,20 +94,21 @@ try:
             match = re.search(r'Ref: (\d+)', str(row['Evento']))
             return match.group(1) if match else row.name
         df_f['ID_Ref'] = df_f.apply(extract_id, axis=1)
+        
         df_clean = df_f.groupby(['ID_Ref', 'Data_Apenas', 'Evento']).agg({'Valor (R$)': 'sum'}).reset_index()
 
-        # --- LÓGICA DE CÁLCULO DE ODD (INCLUINDO REDS) ---
+        # --- LÓGICA DE PERFORMANCE ---
         def ext_est(txt): return str(txt).split('Ref:')[0].split('/')[-1].strip() if '/' in str(txt) else "Match Odds"
         df_clean['Est'] = df_clean['Evento'].apply(ext_est)
         
-        # 1. Calcula a odd dos Greens
+        # 1. Odd dos Greens
         df_clean['Odd'] = df_clean['Valor (R$)'].apply(lambda x: (x / stake_padrao) + 1 if x > 0 else 0)
         
-        # 2. Atribui a odd média da estratégia para os Reds (para computar no range correto)
+        # 2. Odd Média para Reds (para que as perdas entrem no range correto)
         avg_odds = df_clean[df_clean['Odd'] > 0].groupby('Est')['Odd'].mean().to_dict()
         df_clean.loc[df_clean['Odd'] == 0, 'Odd'] = df_clean['Est'].map(avg_odds).fillna(1.50)
 
-        # --- 3. MÉTRICAS TOPO ---
+        # --- MÉTRICAS TOPO ---
         total_l = df_clean['Valor (R$)'].sum()
         odd_m = df_clean[df_clean['Valor (R$)'] > 0]['Odd'].mean()
         
@@ -117,7 +118,7 @@ try:
         with c3: st.markdown(f'<div class="metric-card" style="background: #0f172a;"><div class="metric-title">Saldo Stakes</div><div class="metric-value">{total_l/stake_padrao:,.2f}</div></div>', unsafe_allow_html=True)
         with c4: st.markdown(f'<div class="metric-card" style="background: #0f172a;"><div class="metric-title">Entradas</div><div class="metric-value">{len(df_clean)}</div></div>', unsafe_allow_html=True)
 
-        # --- 4. CALENDÁRIO ---
+        # --- CALENDÁRIO ---
         st.markdown("<p style='color:#64748b; font-weight:800; margin-top:20px; margin-bottom:0; font-size:0.8rem; letter-spacing:1px;'>📅 DIÁRIO DE OPERAÇÕES</p>", unsafe_allow_html=True)
         cal_obj = calendar.Calendar(firstweekday=0)
         dias_mes = list(cal_obj.itermonthdays(start.year, start.month))
@@ -131,23 +132,19 @@ try:
                 val = lucro_dia.get(dia, 0)
                 stks = val / stake_padrao
                 if val > 0.05:
-                    classe = "day-card green-card"
-                    txt_val = format_br(val); txt_stk = f"{stks:,.2f} STK"
+                    classe = "day-card green-card"; txt_val = format_br(val); txt_stk = f"{stks:,.2f} STK"
                 elif val < -0.05:
-                    classe = "day-card red-card"
-                    txt_val = format_br(val); txt_stk = f"{abs(stks):,.2f} STK"
+                    classe = "day-card red-card"; txt_val = format_br(val); txt_stk = f"{abs(stks):,.2f} STK"
                 else:
                     classe = "day-card"; txt_val = "OFF"; txt_stk = ""
-                
                 content = f'<span class="day-value">{txt_val}</span>'
                 if txt_stk: content += f'<span class="day-stakes">{txt_stk}</span>'
                 html_cal += f'<div class="{classe}"><span class="day-number">{dia}</span>{content}</div>'
         html_cal += '</div>'
         st.markdown(html_cal, unsafe_allow_html=True)
 
-        # --- 5. GRÁFICO ACUMULADO DIÁRIO (ULTRA LISO E BICOLOR) ---
+        # --- GRÁFICO ACUMULADO DIÁRIO (LISO) ---
         st.markdown("<p style='color:#64748b; font-weight:800; margin-top:10px; margin-bottom:0; font-size:0.8rem; letter-spacing:1px;'>📈 EVOLUÇÃO PATRIMONIAL (DIÁRIA)</p>", unsafe_allow_html=True)
-        
         df_diario = df_clean.groupby('Data_Apenas')['Valor (R$)'].sum().reset_index()
         df_diario['Acumulado'] = df_diario['Valor (R$)'].cumsum()
         y = df_diario['Acumulado'].tolist()
@@ -166,15 +163,13 @@ try:
             fill='tozeroy', fillcolor='rgba(16, 185, 129, 0.03)' if total_l >= 0 else 'rgba(244, 63, 94, 0.03)',
             showlegend=False
         ))
-        fig_evol.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            margin=dict(l=0, r=0, t=20, b=0), height=380,
+        fig_evol.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=20, b=0), height=380,
             xaxis=dict(showgrid=False, color='#475569', tickfont=dict(size=10)),
             yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.03)', color='#475569', tickfont=dict(size=10), zeroline=True, zerolinecolor='rgba(255,255,255,0.1)'),
         )
         st.plotly_chart(fig_evol, use_container_width=True, config={'displayModeBar': False})
 
-        # --- 6. PERFORMANCE ESTRATÉGIA E ODD ---
+        # --- PERFORMANCE ESTRATÉGIA E NOVOS RANGES DE ODD ---
         col_est, col_odd = st.columns(2)
         with col_est:
             st.subheader("🎯 Performance por Estratégia")
@@ -186,13 +181,14 @@ try:
 
         with col_odd:
             st.subheader("📊 Performance por Range de Odd")
-            bins = [0, 1.30, 1.60, 2.0, 3.0, 100]; labels = ['1.0-1.3', '1.3-1.6', '1.6-2.0', '2.0-3.0', '3.0+']
+            # --- NOVOS INTERVALOS SOLICITADOS ---
+            bins = [0, 1.30, 1.59, 1.79, 2.09, 3.0, 1000]
+            labels = ['1.00-1.30', '1.31-1.59', '1.60-1.79', '1.80-2.09', '2.10-3.00', '3.00+']
             df_clean['Range'] = pd.cut(df_clean['Odd'], bins=bins, labels=labels)
             res_odd = df_clean.groupby('Range', observed=False).agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'})
             for r, row in res_odd.iterrows():
                 roi = (row['Lucro'] / (row['Qtd'] * stake_padrao)) * 100 if row['Qtd'] > 0 else 0
                 cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
                 st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">Odd: {r}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
-
 except Exception as e:
-    st.error(f"Erro no processamento: {e}")
+    st.error(f"Erro: {e}")
