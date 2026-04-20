@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 import calendar
 import plotly.graph_objects as go
-from datetime import datetime # IMPORT ESSENCIAL PARA O CALENDÁRIO
+from datetime import datetime
 import re
+import numpy as np
 
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(layout="wide", page_title="Betting Analytics Pro", page_icon="💎")
@@ -15,7 +16,6 @@ st.markdown("""
     * { font-family: 'Inter', sans-serif; }
     .stApp { background-color: #0f172a; }
 
-    /* Centralizar conteúdo */
     .main .block-container { max-width: 1200px; padding-top: 1.5rem; margin: auto; }
 
     /* Cartões de Métricas Topo */
@@ -52,7 +52,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# TÍTULO EXECUTIVE
+# TÍTULO
 st.markdown("<h1 style='text-align: center; color: white; font-size: 2rem; font-weight: 800;'> <span style='color: #10b981;'>BETTING</span> ANALYTICS <span style='font-weight: 100; opacity: 0.3;'>|</span> EXECUTIVE</h1>", unsafe_allow_html=True)
 
 # --- CONFIGURAÇÃO DE DADOS ---
@@ -101,10 +101,9 @@ try:
         with c3: st.markdown(f'<div class="metric-card" style="background: #1e293b;"><div class="metric-title">Saldo Stakes</div><div class="metric-value">{total_l/stake_padrao:,.2f}</div></div>', unsafe_allow_html=True)
         with c4: st.markdown(f'<div class="metric-card" style="background: #1e293b;"><div class="metric-title">Entradas</div><div class="metric-value">{len(df_clean)}</div></div>', unsafe_allow_html=True)
 
-        # --- 4. CALENDÁRIO NO TOPO ---
+        # --- 4. CALENDÁRIO ABAIXO DAS MÉTRICAS ---
         st.markdown("<p style='color:#94a3b8; font-weight:800; margin-top:20px; margin-bottom:0;'>📅 DIÁRIO DE OPERAÇÕES</p>", unsafe_allow_html=True)
         cal_obj = calendar.Calendar(firstweekday=0)
-        # Usa o mês do período selecionado
         dias_mes = list(cal_obj.itermonthdays(start.year, start.month))
         lucro_dia = df_clean.groupby(pd.to_datetime(df_clean['Data_Apenas']).dt.day)['Valor (R$)'].sum()
 
@@ -120,24 +119,43 @@ try:
         html_cal += '</div>'
         st.markdown(html_cal, unsafe_allow_html=True)
 
-        # --- 5. GRÁFICO ACUMULADO COM COR DINÂMICA ---
+        # --- 5. GRÁFICO ACUMULADO COM MUDANÇA DE COR NO ZERO ---
         st.markdown("<p style='color:#94a3b8; font-weight:800; margin-top:10px; margin-bottom:0;'>📈 EVOLUÇÃO PATRIMONIAL</p>", unsafe_allow_html=True)
-        cor_linha = '#10b981' if total_l >= 0 else '#ef4444'
+        
+        y_values = df_clean['Lucro_Acumulado'].tolist()
+        x_values = df_clean['Data_Apenas'].tolist()
+        
         fig_evol = go.Figure()
+
+        # Segmentação para mudar a cor da linha baseado no lucro
+        for i in range(len(y_values)-1):
+            # Se o próximo ponto for positivo, linha verde. Se for negativo, vermelha.
+            color = '#10b981' if y_values[i+1] >= 0 else '#ef4444'
+            fig_evol.add_trace(go.Scatter(
+                x=x_values[i:i+2], y=y_values[i:i+2],
+                mode='lines', line=dict(color=color, width=4, shape='spline'),
+                hoverinfo='skip', showlegend=False
+            ))
+
+        # Glow/Área preenchida
         fig_evol.add_trace(go.Scatter(
-            x=df_clean['Data_Apenas'], y=df_clean['Lucro_Acumulado'],
-            mode='lines', line=dict(color=cor_linha, width=4, shape='spline'),
-            fill='tozeroy', fillcolor=f'rgba({16 if total_l >=0 else 239}, {185 if total_l >=0 else 68}, {129 if total_l >=0 else 68}, 0.1)'
+            x=x_values, y=y_values,
+            mode='lines', line=dict(color='rgba(0,0,0,0)'),
+            fill='tozeroy', 
+            fillcolor='rgba(16, 185, 129, 0.05)' if total_l >= 0 else 'rgba(239, 68, 68, 0.05)',
+            name='Patrimônio'
         ))
+
         fig_evol.update_layout(
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            margin=dict(l=0, r=0, t=20, b=0), height=300,
+            margin=dict(l=0, r=0, t=20, b=0), height=350,
             xaxis=dict(showgrid=False, color='#64748b'),
-            yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', color='#64748b')
+            yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', color='#64748b', zeroline=True, zerolinecolor='rgba(255,255,255,0.2)'),
+            showlegend=False
         )
         st.plotly_chart(fig_evol, use_container_width=True, config={'displayModeBar': False})
 
-        # --- 6. PERFORMANCE ESTRATÉGIA E ODD ---
+        # --- 6. PERFORMANCE ESTRATÉGIA E ODD (CARDS HORIZONTAIS) ---
         col_est, col_odd = st.columns(2)
         with col_est:
             st.subheader("🎯 Performance por Estratégia")
@@ -166,4 +184,4 @@ try:
                 </div>''', unsafe_allow_html=True)
 
 except Exception as e:
-    st.error(f"Erro: {e}")
+    st.error(f"Erro no processamento: {e}")
