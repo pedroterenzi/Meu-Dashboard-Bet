@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import calendar
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, date
 import re
 import numpy as np
 
@@ -79,118 +79,137 @@ try:
     for pt, en in meses_pt_map.items(): df['Data'] = df['Data'].str.replace(pt, en, case=False)
     
     df['Data'] = pd.to_datetime(df['Data'])
-    df['Ano'] = df['Data'].dt.year
-    df['Mes_Num'] = df['Data'].dt.month
+    df['Data_Apenas'] = df['Data'].dt.date
     df = df.sort_values('Data')
 
-    # --- NOVO SELETOR DE PERÍODO (MES E ANO) ---
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("📅 Selecionar Período")
-    
-    anos_disponiveis = sorted(df['Ano'].unique(), reverse=True)
-    ano_sel = st.sidebar.selectbox("Ano", anos_disponiveis)
-    
-    # Mapeamento de meses para exibição
-    nomes_meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
-    mes_nome_sel = st.sidebar.selectbox("Mês", nomes_meses, index=datetime.now().month - 1)
-    mes_num_sel = nomes_meses.index(mes_nome_sel) + 1
-
-    # Navegação
+    # --- MENU DE NAVEGAÇÃO ---
     st.sidebar.markdown("---")
     menu = st.sidebar.radio("Navegação", ["📈 Performance Geral", "📅 Diário de Operações", "📊 Evolução Patrimonial"])
 
-    # Filtro de dados baseado na seleção de Mês/Ano
-    df_f = df[(df['Ano'] == ano_sel) & (df['Mes_Num'] == mes_num_sel)].copy()
+    # --- SELETORES DE PERÍODO FLEXÍVEL ---
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📅 Filtro de Datas")
     
-    if df_f.empty:
-        st.warning(f"Sem dados para {mes_nome_sel} de {ano_sel}")
-    else:
-        def extract_id(row):
-            match = re.search(r'Ref: (\d+)', str(row['Evento']))
-            return match.group(1) if match else row.name
-        df_f['ID_Ref'] = df_f.apply(extract_id, axis=1)
-        df_clean = df_f.groupby(['ID_Ref', 'Data', 'Evento']).agg({'Valor (R$)': 'sum'}).reset_index()
-        df_clean['Data_Apenas'] = df_clean['Data'].dt.date
+    # Seletor de Intervalo (Flexível: ex 15/01 a 15/02)
+    periodo = st.sidebar.date_input("Selecione o Intervalo", [df['Data_Apenas'].min(), df['Data_Apenas'].max()])
+    
+    # Seletor de Mês/Ano específico para o CALENDÁRIO
+    if menu == "📅 Diário de Operações":
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("Visualização do Calendário")
+        anos_disponiveis = sorted(df['Data'].dt.year.unique(), reverse=True)
+        ano_cal = st.sidebar.selectbox("Ano do Calendário", anos_disponiveis)
+        meses_nomes = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+        mes_nome_cal = st.sidebar.selectbox("Mês do Calendário", meses_nomes, index=datetime.now().month - 1)
+        mes_num_cal = meses_nomes.index(mes_nome_cal) + 1
 
-        # Lógica de Odds
-        def ext_est(txt): return str(txt).split('Ref:')[0].split('/')[-1].strip() if '/' in str(txt) else "Match Odds"
-        df_clean['Est'] = df_clean['Evento'].apply(ext_est)
-        df_clean['Odd'] = df_clean['Valor (R$)'].apply(lambda x: (x / stake_padrao) + 1 if x > 0 else 0)
-        avg_odds = df_clean[df_clean['Odd'] > 0].groupby('Est')['Odd'].mean().to_dict()
-        df_clean.loc[df_clean['Odd'] == 0, 'Odd'] = df_clean['Est'].map(avg_odds).fillna(1.50)
+    if len(periodo) == 2:
+        start_date, end_date = periodo
+        df_f = df[(df['Data_Apenas'] >= start_date) & (df['Data_Apenas'] <= end_date)].copy()
+        
+        if df_f.empty:
+            st.warning("Sem dados para o período selecionado.")
+        else:
+            def extract_id(row):
+                match = re.search(r'Ref: (\d+)', str(row['Evento']))
+                return match.group(1) if match else row.name
+            df_f['ID_Ref'] = df_f.apply(extract_id, axis=1)
+            df_clean = df_f.groupby(['ID_Ref', 'Data', 'Evento']).agg({'Valor (R$)': 'sum'}).reset_index()
+            df_clean['Data_Apenas'] = df_clean['Data'].dt.date
 
-        total_l = df_clean['Valor (R$)'].sum()
-        odd_m = df_clean[df_clean['Valor (R$)'] > 0]['Odd'].mean()
+            # Lógica de Odds e Estratégias
+            def ext_est(txt): return str(txt).split('Ref:')[0].split('/')[-1].strip() if '/' in str(txt) else "Match Odds"
+            df_clean['Est'] = df_clean['Evento'].apply(ext_est)
+            df_clean['Odd'] = df_clean['Valor (R$)'].apply(lambda x: (x / stake_padrao) + 1 if x > 0 else 0)
+            avg_odds = df_clean[df_clean['Odd'] > 0].groupby('Est')['Odd'].mean().to_dict()
+            df_clean.loc[df_clean['Odd'] == 0, 'Odd'] = df_clean['Est'].map(avg_odds).fillna(1.50)
 
-        # --- VISÃO 1: PERFORMANCE ---
-        if menu == "📈 Performance Geral":
-            st.markdown(f"<h2 style='color: white;'>Resumo: {mes_nome_sel} {ano_sel}</h2>", unsafe_allow_html=True)
-            c1, c2, c3, c4 = st.columns(4)
-            with c1: st.markdown(f'<div class="metric-card" style="background: linear-gradient(135deg, #10b981 0%, #064e3b 100%);"><div class="metric-title">Lucro Líquido</div><div class="metric-value">{format_br(total_l)}</div></div>', unsafe_allow_html=True)
-            with c2: st.markdown(f'<div class="metric-card"><div class="metric-title">Odd Média</div><div class="metric-value">{odd_m:.2f}</div></div>', unsafe_allow_html=True)
-            with c3: st.markdown(f'<div class="metric-card"><div class="metric-title">Saldo Stakes</div><div class="metric-value">{total_l/stake_padrao:,.2f}</div></div>', unsafe_allow_html=True)
-            with c4: st.markdown(f'<div class="metric-card"><div class="metric-title">Entradas</div><div class="metric-value">{len(df_clean)}</div></div>', unsafe_allow_html=True)
+            total_l = df_clean['Valor (R$)'].sum()
+            odd_m = df_clean[df_clean['Valor (R$)'] > 0]['Odd'].mean()
 
-            col_est, col_odd = st.columns(2)
-            with col_est:
-                st.subheader("🎯 Por Estratégia")
-                res_est = df_clean.groupby('Est').agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'}).sort_values('Lucro', ascending=False)
-                for est, row in res_est.iterrows():
-                    roi = (row['Lucro'] / (row['Qtd'] * stake_padrao)) * 100
-                    cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
-                    st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">{est}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
+            # ---------------------------------------------------------
+            # VISÃO 1: PERFORMANCE GERAL
+            # ---------------------------------------------------------
+            if menu == "📈 Performance Geral":
+                st.markdown(f"<h2 style='color: white;'>Performance: {start_date.strftime('%d/%m')} a {end_date.strftime('%d/%m')}</h2>", unsafe_allow_html=True)
+                
+                # Cor dinâmica para o lucro líquido
+                bg_lucro = "linear-gradient(135deg, #10b981 0%, #064e3b 100%)" if total_l >= 0 else "linear-gradient(135deg, #ef4444 0%, #7f1d1d 100%)"
+                
+                c1, c2, c3, c4 = st.columns(4)
+                with c1: st.markdown(f'<div class="metric-card" style="background: {bg_lucro};"><div class="metric-title">Lucro Líquido</div><div class="metric-value">{format_br(total_l)}</div></div>', unsafe_allow_html=True)
+                with c2: st.markdown(f'<div class="metric-card"><div class="metric-title">Odd Média</div><div class="metric-value">{odd_m:.2f}</div></div>', unsafe_allow_html=True)
+                with c3: st.markdown(f'<div class="metric-card"><div class="metric-title">Saldo Stakes</div><div class="metric-value">{total_l/stake_padrao:,.2f}</div></div>', unsafe_allow_html=True)
+                with c4: st.markdown(f'<div class="metric-card"><div class="metric-title">Entradas</div><div class="metric-value">{len(df_clean)}</div></div>', unsafe_allow_html=True)
 
-            with col_odd:
-                st.subheader("📊 Por Range de Odd")
-                bins = [0, 1.30, 1.59, 1.79, 2.09, 3.0, 1000]
-                labels = ['1.00-1.30', '1.31-1.59', '1.60-1.79', '1.80-2.09', '2.10-3.00', '3.00+']
-                df_clean['Range'] = pd.cut(df_clean['Odd'], bins=bins, labels=labels)
-                res_odd = df_clean.groupby('Range', observed=False).agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'})
-                for r, row in res_odd.iterrows():
-                    roi = (row['Lucro'] / (row['Qtd'] * stake_padrao)) * 100 if row['Qtd'] > 0 else 0
-                    cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
-                    st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">Odd: {r}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
+                col_est, col_odd = st.columns(2)
+                with col_est:
+                    st.subheader("🎯 Por Estratégia")
+                    res_est = df_clean.groupby('Est').agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'}).sort_values('Lucro', ascending=False)
+                    for est, row in res_est.iterrows():
+                        roi = (row['Lucro'] / (row['Qtd'] * stake_padrao)) * 100
+                        cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
+                        st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">{est}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
 
-        # --- VISÃO 2: CALENDÁRIO ---
-        elif menu == "📅 Diário de Operações":
-            st.subheader(f"Calendário: {mes_nome_sel} {ano_sel}")
-            cal_obj = calendar.Calendar(firstweekday=0)
-            dias_mes = list(cal_obj.itermonthdays(ano_sel, mes_num_sel))
-            lucro_dia = df_clean.groupby(df_clean['Data'].dt.day)['Valor (R$)'].sum()
+                with col_odd:
+                    st.subheader("📊 Por Range de Odd")
+                    bins = [0, 1.30, 1.59, 1.79, 2.09, 3.0, 1000]
+                    labels = ['1.00-1.30', '1.31-1.59', '1.60-1.79', '1.80-2.09', '2.10-3.00', '3.00+']
+                    df_clean['Range'] = pd.cut(df_clean['Odd'], bins=bins, labels=labels)
+                    res_odd = df_clean.groupby('Range', observed=False).agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'})
+                    for r, row in res_odd.iterrows():
+                        roi = (row['Lucro'] / (row['Qtd'] * stake_padrao)) * 100 if row['Qtd'] > 0 else 0
+                        cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
+                        st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">Odd: {r}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
 
-            html_cal = '<div class="calendar-grid">'
-            for n in ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB', 'DOM']: html_cal += f'<div class="day-name">{n}</div>'
-            for dia in dias_mes:
-                if dia == 0: html_cal += '<div style="opacity:0"></div>'
-                else:
-                    val = lucro_dia.get(dia, 0)
-                    stks = val / stake_padrao
-                    if val > 0.05:
-                        classe = "day-card green-card"; txt_val = format_br(val); txt_stk = f"{stks:,.2f} STK"
-                    elif val < -0.05:
-                        classe = "day-card red-card"; txt_val = format_br(val); txt_stk = f"{abs(stks):,.2f} STK"
+            # ---------------------------------------------------------
+            # VISÃO 2: CALENDÁRIO (MENSAL)
+            # ---------------------------------------------------------
+            elif menu == "📅 Diário de Operações":
+                st.subheader(f"Diário: {mes_nome_cal} {ano_cal}")
+                cal_obj = calendar.Calendar(firstweekday=0)
+                dias_mes = list(cal_obj.itermonthdays(ano_cal, mes_num_cal))
+                
+                # Para o calendário, pegamos os dados do mês selecionado especificamente
+                df_mes = df[(df['Data'].dt.year == ano_cal) & (df['Data'].dt.month == mes_num_cal)].copy()
+                lucro_dia = df_mes.groupby(df_mes['Data'].dt.day)['Valor (R$)'].sum()
+
+                html_cal = '<div class="calendar-grid">'
+                for n in ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB', 'DOM']: html_cal += f'<div class="day-name">{n}</div>'
+                for dia in dias_mes:
+                    if dia == 0: html_cal += '<div style="opacity:0"></div>'
                     else:
-                        classe = "day-card"; txt_val = ""; txt_stk = ""
-                    content = f'<span class="day-value">{txt_val}</span>'
-                    if txt_stk: content += f'<span class="day-stakes">{txt_stk}</span>'
-                    html_cal += f'<div class="{classe}"><span class="day-number">{dia}</span>{content}</div>'
-            html_cal += '</div>'
-            st.markdown(html_cal, unsafe_allow_html=True)
+                        val = lucro_dia.get(dia, 0)
+                        stks = val / stake_padrao
+                        if val > 0.05:
+                            classe = "day-card green-card"; txt_val = format_br(val); txt_stk = f"{stks:,.2f} STK"
+                        elif val < -0.05:
+                            classe = "day-card red-card"; txt_val = format_br(val); txt_stk = f"{abs(stks):,.2f} STK"
+                        else:
+                            classe = "day-card"; txt_val = ""; txt_stk = ""
+                        
+                        content = f'<span class="day-value">{txt_val}</span>'
+                        if txt_stk: content += f'<span class="day-stakes">{txt_stk}</span>'
+                        html_cal += f'<div class="{classe}"><span class="day-number">{dia}</span>{content}</div>'
+                html_cal += '</div>'
+                st.markdown(html_cal, unsafe_allow_html=True)
 
-        # --- VISÃO 3: EVOLUÇÃO ---
-        elif menu == "📊 Evolução Patrimonial":
-            st.subheader(f"Evolução: {mes_nome_sel} {ano_sel}")
-            df_diario = df_clean.groupby('Data_Apenas')['Valor (R$)'].sum().reset_index()
-            df_diario['Acumulado'] = df_diario['Valor (R$)'].cumsum()
-            y, x = df_diario['Acumulado'].tolist(), df_diario['Data_Apenas'].tolist()
-            
-            fig_evol = go.Figure()
-            for i in range(len(y)-1):
-                cor = '#10b981' if y[i+1] >= 0 else '#f43f5e'
-                fig_evol.add_trace(go.Scatter(x=x[i:i+2], y=y[i:i+2], mode='lines', line=dict(color=cor, width=2.5, shape='spline', smoothing=1.3), hoverinfo='skip', showlegend=False))
-            fig_evol.add_trace(go.Scatter(x=x, y=y, mode='lines', line=dict(color='rgba(0,0,0,0)'), fill='tozeroy', fillcolor='rgba(16, 185, 129, 0.03)' if total_l >= 0 else 'rgba(244, 63, 94, 0.03)', showlegend=False))
-            fig_evol.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=20, b=0), height=500, xaxis=dict(showgrid=False, color='#475569'), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.03)', color='#475569', zeroline=True, zerolinecolor='rgba(255,255,255,0.1)'))
-            st.plotly_chart(fig_evol, use_container_width=True, config={'displayModeBar': False})
+            # ---------------------------------------------------------
+            # VISÃO 3: EVOLUÇÃO (GRÁFICO)
+            # ---------------------------------------------------------
+            elif menu == "📊 Evolução Patrimonial":
+                st.subheader(f"Evolução: {start_date.strftime('%d/%m/%y')} a {end_date.strftime('%d/%m/%y')}")
+                df_diario = df_clean.groupby('Data_Apenas')['Valor (R$)'].sum().reset_index()
+                df_diario['Acumulado'] = df_diario['Valor (R$)'].cumsum()
+                y, x = df_diario['Acumulado'].tolist(), df_diario['Data_Apenas'].tolist()
+                
+                fig_evol = go.Figure()
+                for i in range(len(y)-1):
+                    cor = '#10b981' if y[i+1] >= 0 else '#f43f5e'
+                    fig_evol.add_trace(go.Scatter(x=x[i:i+2], y=y[i:i+2], mode='lines', line=dict(color=cor, width=2.5, shape='spline', smoothing=1.3), hoverinfo='skip', showlegend=False))
+                fig_evol.add_trace(go.Scatter(x=x, y=y, mode='lines', line=dict(color='rgba(0,0,0,0)'), fill='tozeroy', fillcolor='rgba(16, 185, 129, 0.03)' if total_l >= 0 else 'rgba(244, 63, 94, 0.03)', showlegend=False))
+                fig_evol.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=20, b=0), height=500, xaxis=dict(showgrid=False, color='#475569'), yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.03)', color='#475569', zeroline=True, zerolinecolor='rgba(255,255,255,0.1)'))
+                st.plotly_chart(fig_evol, use_container_width=True, config={'displayModeBar': False})
 
 except Exception as e:
-    st.error(f"Erro: {e}")
+    st.error(f"Erro no processamento: {e}")
