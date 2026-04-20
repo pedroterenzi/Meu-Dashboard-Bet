@@ -58,7 +58,7 @@ st.markdown("""
 
 st.markdown("<h1 style='text-align: center; color: white; font-size: 2rem; font-weight: 800;'> <span style='color: #10b981;'>BETTING</span> ANALYTICS <span style='font-weight: 100; opacity: 0.3;'>|</span> EXECUTIVE</h1>", unsafe_allow_html=True)
 
-# --- CONFIGURAÇÃO DE DADOS ---
+# --- 2. CONFIGURAÇÃO DE DADOS ---
 arquivo_path = "Betfair.csv"
 stake_padrao = st.sidebar.number_input("Stake Padrão (R$)", value=600.0)
 
@@ -94,14 +94,22 @@ try:
             match = re.search(r'Ref: (\d+)', str(row['Evento']))
             return match.group(1) if match else row.name
         df_f['ID_Ref'] = df_f.apply(extract_id, axis=1)
-        
-        # Base limpa para cálculos de métricas
         df_clean = df_f.groupby(['ID_Ref', 'Data_Apenas', 'Evento']).agg({'Valor (R$)': 'sum'}).reset_index()
+
+        # --- LÓGICA DE CÁLCULO DE ODD (INCLUINDO REDS) ---
+        def ext_est(txt): return str(txt).split('Ref:')[0].split('/')[-1].strip() if '/' in str(txt) else "Match Odds"
+        df_clean['Est'] = df_clean['Evento'].apply(ext_est)
+        
+        # 1. Calcula a odd dos Greens
+        df_clean['Odd'] = df_clean['Valor (R$)'].apply(lambda x: (x / stake_padrao) + 1 if x > 0 else 0)
+        
+        # 2. Atribui a odd média da estratégia para os Reds (para computar no range correto)
+        avg_odds = df_clean[df_clean['Odd'] > 0].groupby('Est')['Odd'].mean().to_dict()
+        df_clean.loc[df_clean['Odd'] == 0, 'Odd'] = df_clean['Est'].map(avg_odds).fillna(1.50)
 
         # --- 3. MÉTRICAS TOPO ---
         total_l = df_clean['Valor (R$)'].sum()
-        df_clean['Odd'] = df_clean['Valor (R$)'].apply(lambda x: (x / stake_padrao) + 1 if x > 0 else 0)
-        odd_m = df_clean[df_clean['Odd'] > 0]['Odd'].mean()
+        odd_m = df_clean[df_clean['Valor (R$)'] > 0]['Odd'].mean()
         
         c1, c2, c3, c4 = st.columns(4)
         with c1: st.markdown(f'<div class="metric-card" style="background: linear-gradient(135deg, #10b981 0%, #064e3b 100%);"><div class="metric-title">Lucro Líquido</div><div class="metric-value">{format_br(total_l)}</div></div>', unsafe_allow_html=True)
@@ -124,33 +132,28 @@ try:
                 stks = val / stake_padrao
                 if val > 0.05:
                     classe = "day-card green-card"
-                    txt_val = format_br(val)
-                    txt_stk = f"{stks:,.2f} STK"
+                    txt_val = format_br(val); txt_stk = f"{stks:,.2f} STK"
                 elif val < -0.05:
                     classe = "day-card red-card"
-                    txt_val = format_br(val)
-                    txt_stk = f"{abs(stks):,.2f} STK"
+                    txt_val = format_br(val); txt_stk = f"{abs(stks):,.2f} STK"
                 else:
-                    classe = "day-card"
-                    txt_val = "OFF"; txt_stk = ""
+                    classe = "day-card"; txt_val = "OFF"; txt_stk = ""
+                
                 content = f'<span class="day-value">{txt_val}</span>'
                 if txt_stk: content += f'<span class="day-stakes">{txt_stk}</span>'
                 html_cal += f'<div class="{classe}"><span class="day-number">{dia}</span>{content}</div>'
         html_cal += '</div>'
         st.markdown(html_cal, unsafe_allow_html=True)
 
-        # --- 5. GRÁFICO ACUMULADO POR DIA (SOLUÇÃO PARA O "QUADRADÃO") ---
+        # --- 5. GRÁFICO ACUMULADO DIÁRIO (ULTRA LISO E BICOLOR) ---
         st.markdown("<p style='color:#64748b; font-weight:800; margin-top:10px; margin-bottom:0; font-size:0.8rem; letter-spacing:1px;'>📈 EVOLUÇÃO PATRIMONIAL (DIÁRIA)</p>", unsafe_allow_html=True)
         
-        # AGRUPANDO POR DIA PARA LISURA DA LINHA
         df_diario = df_clean.groupby('Data_Apenas')['Valor (R$)'].sum().reset_index()
         df_diario['Acumulado'] = df_diario['Valor (R$)'].cumsum()
-        
         y = df_diario['Acumulado'].tolist()
         x = df_diario['Data_Apenas'].tolist()
         
         fig_evol = go.Figure()
-        # Linha Fina, Curva (Spline) e Bicolor
         for i in range(len(y)-1):
             cor = '#10b981' if y[i+1] >= 0 else '#f43f5e'
             fig_evol.add_trace(go.Scatter(
@@ -158,7 +161,6 @@ try:
                 mode='lines', line=dict(color=cor, width=2.5, shape='spline', smoothing=1.3),
                 hoverinfo='skip', showlegend=False
             ))
-        # Glow
         fig_evol.add_trace(go.Scatter(
             x=x, y=y, mode='lines', line=dict(color='rgba(0,0,0,0)'),
             fill='tozeroy', fillcolor='rgba(16, 185, 129, 0.03)' if total_l >= 0 else 'rgba(244, 63, 94, 0.03)',
@@ -172,25 +174,25 @@ try:
         )
         st.plotly_chart(fig_evol, use_container_width=True, config={'displayModeBar': False})
 
-        # --- 6. PERFORMANCE ---
+        # --- 6. PERFORMANCE ESTRATÉGIA E ODD ---
         col_est, col_odd = st.columns(2)
         with col_est:
             st.subheader("🎯 Performance por Estratégia")
-            def ext_est(txt): return str(txt).split('Ref:')[0].split('/')[-1].strip() if '/' in str(txt) else "Match Odds"
-            df_clean['Est'] = df_clean['Evento'].apply(ext_est)
             res_est = df_clean.groupby('Est').agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'}).sort_values('Lucro', ascending=False)
             for est, row in res_est.iterrows():
                 roi = (row['Lucro'] / (row['Qtd'] * stake_padrao)) * 100
                 cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
                 st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">{est}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
+
         with col_odd:
             st.subheader("📊 Performance por Range de Odd")
             bins = [0, 1.30, 1.60, 2.0, 3.0, 100]; labels = ['1.0-1.3', '1.3-1.6', '1.6-2.0', '2.0-3.0', '3.0+']
             df_clean['Range'] = pd.cut(df_clean['Odd'], bins=bins, labels=labels)
-            res_odd = df_clean[df_clean['Odd'] > 0].groupby('Range', observed=False).agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'})
+            res_odd = df_clean.groupby('Range', observed=False).agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'})
             for r, row in res_odd.iterrows():
                 roi = (row['Lucro'] / (row['Qtd'] * stake_padrao)) * 100 if row['Qtd'] > 0 else 0
                 cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
                 st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">Odd: {r}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
+
 except Exception as e:
-    st.error(f"Erro: {e}")
+    st.error(f"Erro no processamento: {e}")
