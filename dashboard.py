@@ -30,7 +30,14 @@ st.markdown("""
     .metric-title { font-size: 0.7rem; text-transform: uppercase; opacity: 0.6; letter-spacing: 1.2px; margin-bottom: 5px; }
     .metric-value { font-size: 1.6rem; margin: 0; letter-spacing: -1px; }
 
-    /* Grid do Calendário */
+    /* Estilo para o Cartão de Lucro Mensal (Destaque no Calendário) */
+    .monthly-profit-card {
+        padding: 15px; border-radius: 15px; text-align: center; color: white; font-weight: 800;
+        margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Calendário */
     .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-top: 15px; }
     .day-name { text-align: center; color: #475569; font-weight: 800; font-size: 0.7rem; text-transform: uppercase; }
     .day-card { 
@@ -81,7 +88,7 @@ try:
     df['Data'] = pd.to_datetime(df['Data'])
     df['Data_Apenas'] = df['Data'].dt.date
     df['Hora'] = df['Data'].dt.hour
-    df['Dia_Semana_Num'] = df['Data'].dt.dayofweek # 0=Segunda, 6=Domingo
+    df['Dia_Semana_Num'] = df['Data'].dt.dayofweek
     df = df.sort_values('Data')
 
     # --- MENU DE NAVEGAÇÃO ---
@@ -89,11 +96,11 @@ try:
     menu = st.sidebar.radio("Navegação", ["📈 Performance Geral", "📅 Diário de Operações", "📊 Evolução Patrimonial", "⏰ Análise de Janelas"])
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("📅 Filtro de Datas")
-    periodo = st.sidebar.date_input("Intervalo Global", [df['Data_Apenas'].min(), df['Data_Apenas'].max()])
+    st.sidebar.subheader("📅 Filtro de Datas Global")
+    periodo_global = st.sidebar.date_input("Intervalo das Análises", [df['Data_Apenas'].min(), df['Data_Apenas'].max()])
 
-    if len(periodo) == 2:
-        start_date, end_date = periodo
+    if len(periodo_global) == 2:
+        start_date, end_date = periodo_global
         df_f = df[(df['Data_Apenas'] >= start_date) & (df['Data_Apenas'] <= end_date)].copy()
         
         def extract_id(row):
@@ -147,7 +154,7 @@ try:
                     st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">Odd: {r}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
 
         # ---------------------------------------------------------
-        # VISÃO 2: CALENDÁRIO
+        # VISÃO 2: CALENDÁRIO COM CARTÃO DE LUCRO MENSAL
         # ---------------------------------------------------------
         elif menu == "📅 Diário de Operações":
             st.sidebar.markdown("---")
@@ -156,10 +163,25 @@ try:
             mes_nome_cal = st.sidebar.selectbox("Mês", meses_nomes, index=datetime.now().month - 1)
             mes_num_cal = meses_nomes.index(mes_nome_cal) + 1
             
+            # Dados específicos do mês para o cartão e calendário
+            df_mes = df[(df['Data'].dt.year == ano_cal) & (df['Data'].dt.month == mes_num_cal)].copy()
+            lucro_mensal = df_mes['Valor (R$)'].sum()
+            
+            # Cabeçalho da aba com o novo Cartão de Lucro Mensal
             st.subheader(f"Diário: {mes_nome_cal} {ano_cal}")
+            
+            bg_mensal = "rgba(16, 185, 129, 0.2)" if lucro_mensal >= 0 else "rgba(244, 63, 94, 0.2)"
+            border_mensal = "#10b981" if lucro_mensal >= 0 else "#f43f5e"
+            st.markdown(f'''
+                <div class="monthly-profit-card" style="background-color: {bg_mensal}; border: 2px solid {border_mensal};">
+                    <span style="font-size: 0.8rem; opacity: 0.8; text-transform: uppercase;">Lucro Consolidado em {mes_nome_cal}</span><br>
+                    <span style="font-size: 1.8rem; color: white;">{format_br(lucro_mensal)}</span><br>
+                    <span style="font-size: 0.9rem; opacity: 0.9;">{(lucro_mensal/stake_padrao):,.2f} STAKES</span>
+                </div>
+            ''', unsafe_allow_html=True)
+
             cal_obj = calendar.Calendar(firstweekday=0)
             dias_mes = list(cal_obj.itermonthdays(ano_cal, mes_num_cal))
-            df_mes = df[(df['Data'].dt.year == ano_cal) & (df['Data'].dt.month == mes_num_cal)].copy()
             lucro_dia = df_mes.groupby(df_mes['Data'].dt.day)['Valor (R$)'].sum()
 
             html_cal = '<div class="calendar-grid">'
@@ -199,45 +221,32 @@ try:
             st.plotly_chart(fig_evol, use_container_width=True, config={'displayModeBar': False})
 
         # ---------------------------------------------------------
-        # VISÃO 4: ANÁLISE DE JANELAS (DOR E HORÁRIO)
+        # VISÃO 4: ANÁLISE DE JANELAS
         # ---------------------------------------------------------
         elif menu == "⏰ Análise de Janelas":
             st.markdown("<h2 style='color: white;'>Análise por Dia e Horário</h2>", unsafe_allow_html=True)
             col_dia, col_hora = st.columns(2)
-
             with col_dia:
                 st.subheader("📅 Por Dia da Semana")
                 dias_semana = {0: 'Segunda', 1: 'Terça', 2: 'Quarta', 3: 'Quinta', 4: 'Sexta', 5: 'Sábado', 6: 'Domingo'}
                 res_dia = df_clean.groupby('Dia_Semana_Num').agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'})
-                # Garantir que todos os dias apareçam
                 for i in range(7):
-                    if i not in res_dia.index:
-                        res_dia.loc[i] = [0, 0]
+                    if i not in res_dia.index: res_dia.loc[i] = [0, 0]
                 res_dia = res_dia.sort_index()
-                
                 for idx, row in res_dia.iterrows():
                     roi = (row['Lucro'] / (row['Qtd'] * stake_padrao)) * 100 if row['Qtd'] > 0 else 0
                     cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
-                    st.markdown(f'''<div class="perf-card">
-                        <div style="flex:2"><b style="color:white">{dias_semana[idx]}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div>
-                        <div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div>
-                    </div>''', unsafe_allow_html=True)
-
+                    st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">{dias_semana[idx]}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
             with col_hora:
                 st.subheader("⌚ Por Faixa de Horário")
-                # Agrupando em blocos de 4 horas para facilitar a leitura
                 bins_h = [0, 6, 12, 18, 24]
                 labels_h = ['Madrugada (00-06h)', 'Manhã (06-12h)', 'Tarde (12-18h)', 'Noite (18-00h)']
                 df_clean['Faixa_Hora'] = pd.cut(df_clean['Hora'], bins=bins_h, labels=labels_h, include_lowest=True)
                 res_hora = df_clean.groupby('Faixa_Hora', observed=False).agg({'Valor (R$)': 'sum', 'ID_Ref': 'count'}).rename(columns={'ID_Ref': 'Qtd', 'Valor (R$)': 'Lucro'})
-                
                 for faixa, row in res_hora.iterrows():
                     roi = (row['Lucro'] / (row['Qtd'] * stake_padrao)) * 100 if row['Qtd'] > 0 else 0
                     cor = "val-pos" if row['Lucro'] >= 0 else "val-neg"
-                    st.markdown(f'''<div class="perf-card">
-                        <div style="flex:2"><b style="color:white">{faixa}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div>
-                        <div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div>
-                    </div>''', unsafe_allow_html=True)
+                    st.markdown(f'''<div class="perf-card"><div style="flex:2"><b style="color:white">{faixa}</b><br><small style="color:#64748b">{int(row['Qtd'])} entr. | {row['Lucro']/stake_padrao:,.2f} stk</small></div><div style="flex:1; text-align:right;"><span class="{cor}">{format_br(row['Lucro'])}</span><br><small style="color:#475569">{roi:.1f}% ROI</small></div></div>''', unsafe_allow_html=True)
 
 except Exception as e:
     st.error(f"Erro: {e}")
