@@ -4,8 +4,12 @@ import calendar
 from datetime import datetime
 import re
 
-# 1. CONFIGURAÇÃO DA PÁGINA
-st.set_page_config(layout="wide", page_title="Betting Analytics Pro", page_icon="💹")
+# 1. CONFIGURAÇÃO DA PÁGINA (Ícone Profissional de Diamante)
+st.set_page_config(
+    layout="wide", 
+    page_title="Betting Analytics Pro", 
+    page_icon="💎"
+)
 
 # --- ESTILIZAÇÃO CSS PREMIUM (ADAPTADA PARA MOBILE) ---
 st.markdown("""
@@ -52,31 +56,35 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("💹 Betting Analytics Executive")
+# TÍTULO PREMIUM
+st.markdown("""
+    <h1 style='text-align: center; color: white; font-size: 2.5rem; font-weight: 800; letter-spacing: -2px; margin-bottom: 30px;'>
+        <span style='color: #10b981;'>BETTING</span> ANALYTICS <span style='font-weight: 100; opacity: 0.5;'>|</span> EXECUTIVE
+    </h1>
+""", unsafe_allow_html=True)
 
-# --- 2. BARRA LATERAL (AJUSTADA PARA NUVEM) ---
+# --- 2. BARRA LATERAL ---
 st.sidebar.header("🕹️ Painel Online")
-
-# Nome do arquivo que você vai subir no GitHub
 NOME_ARQUIVO_PADRAO = "Betfair.csv"
 arquivo_path = st.sidebar.text_input("Nome do Arquivo CSV", NOME_ARQUIVO_PADRAO)
 stake_padrao = st.sidebar.number_input("Stake (R$)", value=600.0)
 
 def clean_money(val):
     if val == '--' or pd.isna(val): return 0.0
+    # Remove vírgulas de milhar se houver e converte
     return float(str(val).replace(',', ''))
 
 try:
-    # Lê o arquivo da pasta atual
     df_raw = pd.read_csv(arquivo_path)
     
-    # Processamento de colunas
+    # Processamento Betfair CSV (Descrição -> Evento)
     if 'Descrição' in df_raw.columns:
         df_raw = df_raw.rename(columns={'Descrição': 'Evento'})
         df_raw['Valor (R$)'] = df_raw['Entrada de Dinheiro (R$)'].apply(clean_money) + df_raw['Saída de Dinheiro (R$)'].apply(clean_money)
     
     df = df_raw[~df_raw['Evento'].str.contains('Depósito|Deposit|Withdraw|Saque|Transferência', case=False, na=False)].copy()
     
+    # Tradução de meses para o pandas
     meses_pt = {'jan': 'Jan', 'fev': 'Feb', 'mar': 'Mar', 'abr': 'Apr', 'mai': 'May', 'jun': 'Jun', 
                 'jul': 'Jul', 'ago': 'Aug', 'set': 'Sep', 'out': 'Oct', 'nov': 'Nov', 'dez': 'Dec'}
     for pt, en in meses_pt.items():
@@ -85,7 +93,6 @@ try:
     df['Data'] = pd.to_datetime(df['Data'])
     df['Data_Apenas'] = df['Data'].dt.date
 
-    # Filtro de Data
     data_sel = st.sidebar.date_input("Período", [df['Data_Apenas'].min(), df['Data_Apenas'].max()])
 
     if len(data_sel) == 2:
@@ -174,5 +181,5 @@ try:
         st.markdown(html_perf, unsafe_allow_html=True)
 
 except Exception as e:
-    st.info("📌 Para carregar: Suba o arquivo CSV para o GitHub com o nome 'AccountStatement_ (1).csv'")
-    st.error(f"Detalhe: {e}")
+    st.info(f"📌 Para carregar o dashboard: Certifique-se de que o arquivo '{NOME_ARQUIVO_PADRAO}' está na mesma pasta que este código.")
+    st.error(f"Erro detectado: {e}")
